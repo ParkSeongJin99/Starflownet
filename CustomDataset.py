@@ -57,7 +57,7 @@ class CustomDataset(Dataset):
             img1 = Image.open(img1_path).convert('L')
             img2 = Image.open(img2_path).convert('L')
         except UnidentifiedImageError as e:
-            #print(f"Skipping corrupted image: {img1_path} or {img2_path}. Error: {e}")
+            # print(f"Skipping corrupted image: {img1_path} or {img2_path}. Error: {e}")
             return self.__getitem__((idx + 1) % len(self.image_pairs))
 
         # Load optical flow
