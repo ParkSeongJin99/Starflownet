@@ -204,6 +204,11 @@ def validate(val_loader, model,epoch, writer, device, print_freq, args):
             target = target.to(device)
 
             output = model(images)
+            if args.sparse:
+            # Since Target pooling is not very precise when sparse,
+            # take the highest resolution prediction and upsample it instead of downsampling target
+                h, w = target.size()[-2:]
+                output = [F.interpolate(output, (h, w))]
             #print("output[0]:",output[0].shape)
             flow2_EPE_val = args.div_flow * realEPE(output, target, sparse=args.sparse)
             loss = flow2_EPE_val
