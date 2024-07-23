@@ -88,7 +88,14 @@ def main():
     elif args.solver == "sgd":
         optimizer = torch.optim.SGD(param_groups, args.lr, momentum=args.momentum)
 
-    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=args.milestones, gamma=0.5)
+    # LambdaLR를 사용하여 50 epoch 이후로 20 epoch마다 learning rate를 절반으로 줄이는 스케줄러 설정
+    def lr_lambda(epoch):
+        if epoch < 50:
+            return 1.0
+        else:
+            return 0.5 ** ((epoch - 50) // 20)
+        
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
     best_loss = float('inf')
     epochs_no_improve = 0
@@ -150,7 +157,7 @@ def train(train_loader, model, optimizer, epoch, writer, device, print_freq, arg
             # take the highest resolution prediction and upsample it instead of downsampling target
             h, w = target.size()[-2:]
             output = [F.interpolate(output[0], (h, w)), *output[1:]]
-
+            
         # Loss값을 multiscale loss에서 수정
 
         # loss = multiscaleEPE(
