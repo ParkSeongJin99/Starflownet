@@ -1,12 +1,11 @@
 import os
 import torch
 from torch.utils.data import Dataset
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 import numpy as np
 from torchvision import transforms
 
 # Custom transformation to convert numpy arrays to tensors
-
 class ArrayToTensor(object):
     def __call__(self, sample):
         if isinstance(sample, torch.Tensor):
@@ -14,40 +13,18 @@ class ArrayToTensor(object):
         else:
             return torch.tensor(sample, dtype=torch.float32)  # Tensor가 아닌 경우, torch.tensor 사용
 
-
 # Define your image and flow transforms
-# 해상도 변경 원할 시 두 transform모두 변경 후 main문 transformation = TRUE
-
 input_transform = transforms.Compose([
-    
     transforms.ToTensor(),  # Convert PIL Image to Tensor
     transforms.Resize((512, 512)),
     transforms.Normalize(mean=[0.45], std=[1])  # Normalize RGB images
 ])
 
 target_transform = transforms.Compose([
-    
     ArrayToTensor(),  # Convert optical flow numpy array to Tensor
     transforms.Resize((512, 512)),
     transforms.Normalize(mean=[0], std=[1])  # Normalize flow data
 ])
-
-
-#아래 원본 코드를 참고해서 작성
-
-# input_transform = transforms.Compose(
-#         [
-#             flow_transforms.ArrayToTensor(),
-#             transforms.Normalize(mean=[0, 0, 0], std=[255, 255, 255]),
-#             transforms.Normalize(mean=[0.45, 0.432, 0.411], std=[1, 1, 1]),
-#         ]
-#     )
-#     target_transform = transforms.Compose(
-#         [
-#             flow_transforms.ArrayToTensor(),
-#             transforms.Normalize(mean=[0, 0], std=[args.div_flow, args.div_flow]),
-#         ]
-#     )
 
 class CustomDataset(Dataset):
     def __init__(self, root_dir, transformation):
@@ -75,23 +52,24 @@ class CustomDataset(Dataset):
     def __getitem__(self, idx):
         img1_path, img2_path, flo_path = self.image_pairs[idx]
 
-        # Load images
-        img1 = Image.open(img1_path).convert('L')
-        img2 = Image.open(img2_path).convert('L')
+        try:
+            # Load images
+            img1 = Image.open(img1_path).convert('L')
+            img2 = Image.open(img2_path).convert('L')
+        except UnidentifiedImageError as e:
+            print(f"Skipping corrupted image: {img1_path} or {img2_path}. Error: {e}")
+            return self.__getitem__((idx + 1) % len(self.image_pairs))
 
         # Load optical flow
         flow = self.load_optical_flow(flo_path)
         flow = flow.permute(2, 0, 1)
+
         # Apply transformations if any
         if self.transformation:
-  
             img1 = self.input_transform(img1)
-            
             img2 = self.input_transform(img2)
-           
             flow = self.target_transform(flow)
-          
-        
+
         return (torch.cat((img1, img2), dim=0), flow)
 
     def load_optical_flow(self, path):
