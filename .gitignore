@@ -1,0 +1,6 @@
+dataset/
+result/
+Validation/
+saved_models/
+Starnet_result/
+*.xlsx

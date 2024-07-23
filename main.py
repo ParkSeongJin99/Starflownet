@@ -1,6 +1,6 @@
 import argparse
 import os
-import datetime
+import time
 import torch
 import torch.nn.functional as F
 import torch.optim
@@ -9,12 +9,15 @@ from torchvision import transforms
 from torch.utils.tensorboard import SummaryWriter
 import numpy as np
 from CustomDataset import CustomDataset
-from models.Conv7_fc2_nopool import StarNet  # Starnet.py의 StarNet 클래스를 import합니다.
+from models.Starflow import Starflow  # Starflow 모델을 import합니다.
+from multiscaleloss import *
+import datetime
+from torch.utils.tensorboard import SummaryWriter
 
 def main():
-    parser = argparse.ArgumentParser(description="PyTorch StarNet Training")
+    parser = argparse.ArgumentParser(description="PyTorch Starflow Training")
     parser.add_argument("data", metavar="DIR", help="path to dataset")
-    parser.add_argument("--arch", default="starnet", help="model architecture")
+    parser.add_argument("--arch", default="starflow", help="model architecture")
     parser.add_argument("--solver", default="adam", choices=["adam", "sgd"], help="solver algorithm")
     parser.add_argument("--workers", default=8, type=int, help="number of data loading workers")
     parser.add_argument("--epochs", default=300, type=int, help="number of total epochs to run")
@@ -32,6 +35,9 @@ def main():
     parser.add_argument("--save-dir", default="saved_models", help="directory to save the trained models")
     parser.add_argument("--patience", default=20, type=int, help="number of epochs to wait for improvement before stopping")
     parser.add_argument("--val-split", default=0.1, type=float, help="proportion of the dataset to include in the validation split")
+    parser.add_argument("--multiscale-weights", default=[0.005, 0.01, 0.02, 0.08, 0.32], nargs="*", type=float, help="weights for multiscale EPE loss")
+    parser.add_argument("--sparse", action="store_true", help="if true, handle sparse targets")
+    parser.add_argument("--div-flow", default=1.0, type=float, help="division factor for EPE calculation")
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -44,13 +50,15 @@ def main():
     train_writer = SummaryWriter(os.path.join(save_path, "train"))
     val_writer = SummaryWriter(os.path.join(save_path, "val"))
     
-    train_transform = transforms.Compose([
-        transforms.Resize((256, 256)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.5], std=[0.5])
-    ])
+    # train_transform = transforms.Compose([
+    #     #transforms.Resize((256, 256)),
+    #     transforms.ToTensor(),
+    #     transforms.Normalize(mean=[0.5], std=[0.5])
+    # ])
 
-    full_dataset = CustomDataset(root_dir=args.data, transform=train_transform)
+
+    
+    full_dataset = CustomDataset(root_dir=args.data, transformation=1)
     
     val_size = int(len(full_dataset) * args.val_split)
     train_size = len(full_dataset) - val_size
@@ -67,7 +75,7 @@ def main():
     # 훈련 시작 메시지 출력
     print("훈련 시작")
 
-    model = StarNet().to(device)
+    model = Starflow().to(device)  # Starflow 모델로 변경
     if args.pretrained:
         model.load_state_dict(torch.load(args.pretrained))
 
@@ -86,8 +94,8 @@ def main():
     epochs_no_improve = 0
 
     for epoch in range(args.start_epoch, args.epochs):
-        train_loss = train(train_loader, model, optimizer, epoch, train_writer, device, args.print_freq)
-        val_loss = validate(val_loader, model, epoch, val_writer, device, args.print_freq)
+        train_loss = train(train_loader, model, optimizer, epoch, train_writer, device, args.print_freq, args)
+        val_loss = validate(val_loader, model, epoch, val_writer, device, args.print_freq, args)
 
         scheduler.step()
 
@@ -114,40 +122,90 @@ def main():
             break
 
 
-def train(train_loader, model, optimizer, epoch, writer, device, print_freq):
+def train(train_loader, model, optimizer, epoch, writer, device, print_freq, args):
+    
     model.train()
+    batch_time = AverageMeter()
+    data_time = AverageMeter()
     losses = AverageMeter()
+    flow2_EPEs = AverageMeter()
 
-    for i, (images, target) in enumerate(train_loader):
-        images = images.to(device)
+    n_iter = 0
+    end = time.time()
+
+    for i, data in enumerate(train_loader):
+        input, target = data
+
+        # measure data loading time
+        data_time.update(time.time() - end)
         target = target.to(device)
+        print("target:",target.size())
+        input = input.to(device)
 
-        output = model(images)
-        loss = F.mse_loss(output, target)
 
-        losses.update(loss.item(), images.size(0))
+        # compute output
+        output = model(input)
+        #print("Size:[{},{},{}]".format(output.size()[0],output.size()[1],output.size()[2]))
+        if args.sparse:
+            # Since Target pooling is not very precise when sparse,
+            # take the highest resolution prediction and upsample it instead of downsampling target
+            h, w = target.size()[-2:]
+            output = [F.interpolate(output[0], (h, w)), *output[1:]]
+            print("anggimotti")
 
+        # Loss값을 multiscale loss에서 수정
+
+        # loss = multiscaleEPE(
+        #     output, target, weights=args.multiscale_weights, sparse=args.sparse
+        # )
+
+        print("output[0]:",output[0].shape)
+        print("target:",target.shape)
+        flow2_EPE = args.div_flow * realEPE(output[0], target, sparse=args.sparse)
+        loss = flow2_EPE
+
+        # record loss and EPE
+        losses.update(loss.item(), target.size(0))
+        #writer.add_scalar("train_loss", loss.item(), n_iter)
+        flow2_EPEs.update(flow2_EPE.item(), target.size(0))
+
+        # compute gradient and do optimization step
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
 
+        # measure elapsed time
+        batch_time.update(time.time() - end)
+        end = time.time()
+
         if i % print_freq == 0:
-            print(f"Epoch: [{epoch}][{i}/{len(train_loader)}]\t"
-                  f"Loss {losses.val:.4f} ({losses.avg:.4f})")
-            loss_train = losses.val
+            print(
+                "Epoch: [{0}][{1}/{2}]\t Time {3}\t Data {4}\t Loss {5}\t EPE {6}".format(
+                    epoch, i, len(train_loader), batch_time, data_time, losses, flow2_EPEs
+                )
+            )
+        n_iter += 1
+        if i >= len(train_loader):
+            break
     return losses.avg
 
-def validate(val_loader, model, epoch, writer, device, print_freq):
+def validate(val_loader, model,epoch, writer, device, print_freq, args):
     model.eval()
+    
     losses = AverageMeter()
+    flow2_EPEs = AverageMeter()
 
     with torch.no_grad():
-        for i, (images, target) in enumerate(val_loader):
+        for i, (images,target) in enumerate(val_loader):
             images = images.to(device)
             target = target.to(device)
 
             output = model(images)
-            loss = F.mse_loss(output, target)
+            #print("output[0]:",output[0].shape)
+            flow2_EPE_val = args.div_flow * realEPE(output, target, sparse=args.sparse)
+            loss = flow2_EPE_val
+            #writer.add_scalar("validate_loss", loss.item(), epoch)
+            
 
             losses.update(loss.item(), images.size(0))
             
@@ -158,6 +216,7 @@ def validate(val_loader, model, epoch, writer, device, print_freq):
     print(f" * Loss {losses.avg:.4f}")
 
     return losses.avg
+
 
 class AverageMeter:
     def __init__(self):
@@ -174,6 +233,13 @@ class AverageMeter:
         self.sum += val * n
         self.count += n
         self.avg = self.sum / self.count
+
+    def __str__(self):
+        return f"Value: {self.val:.4f}, Average: {self.avg:.4f}, Sum: {self.sum:.4f}, Count: {self.count}"
+
+
+
+
 
 def save_checkpoint(state, is_best, save_path, filename='checkpoint.pth.tar'):
     torch.save(state, os.path.join(save_path, filename))
