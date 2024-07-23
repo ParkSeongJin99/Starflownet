@@ -62,5 +62,5 @@ def realEPE(output, target, sparse=False):
         output, (h, w), mode="bilinear", align_corners=False
     )
   
-    print("after EPE output:",upsampled_output.shape)
+    #print("after EPE output:",upsampled_output.shape)
     return EPE(upsampled_output, target, sparse, mean=True)

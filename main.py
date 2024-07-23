@@ -139,7 +139,6 @@ def train(train_loader, model, optimizer, epoch, writer, device, print_freq, arg
         # measure data loading time
         data_time.update(time.time() - end)
         target = target.to(device)
-        print("target:",target.size())
         input = input.to(device)
 
 
@@ -151,7 +150,6 @@ def train(train_loader, model, optimizer, epoch, writer, device, print_freq, arg
             # take the highest resolution prediction and upsample it instead of downsampling target
             h, w = target.size()[-2:]
             output = [F.interpolate(output[0], (h, w)), *output[1:]]
-            print("anggimotti")
 
         # Loss값을 multiscale loss에서 수정
 
@@ -159,8 +157,6 @@ def train(train_loader, model, optimizer, epoch, writer, device, print_freq, arg
         #     output, target, weights=args.multiscale_weights, sparse=args.sparse
         # )
 
-        print("output[0]:",output[0].shape)
-        print("target:",target.shape)
         flow2_EPE = args.div_flow * realEPE(output[0], target, sparse=args.sparse)
         loss = flow2_EPE
 

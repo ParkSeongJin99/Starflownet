@@ -46,13 +46,13 @@ class Starflow(nn.Module):
                 nn.init.constant_(m.bias, 0)
 
     def forward(self, x):
-        print(x.shape)
+        #print(x.shape)
         out_conv2 = self.conv2(self.conv1(x))
         out_conv3 = self.conv3_1(self.conv3(out_conv2))
         out_conv4 = self.conv4_1(self.conv4(out_conv3))
         out_conv5 = self.conv5_1(self.conv5(out_conv4))
         out_conv6 = self.conv6_1(self.conv6(out_conv5))
-        print(out_conv6.shape)
+        #print(out_conv6.shape)
         flow6 = self.predict_flow6(out_conv6)
         flow6_up = crop_like(self.upsampled_flow6_to_5(flow6), out_conv5)
         out_deconv5 = crop_like(self.deconv5(out_conv6), out_conv5)
@@ -66,7 +66,7 @@ class Starflow(nn.Module):
         flow4 = self.predict_flow4(concat4)
         flow4_up = crop_like(self.upsampled_flow4_to_3(flow4), out_conv3)
         out_deconv3 = crop_like(self.deconv3(concat4), out_conv3)
-        print(flow4.shape)
+        #print(flow4.shape)
         concat3 = torch.cat((out_conv3, out_deconv3, flow4_up), 1)
         flow3 = self.predict_flow3(concat3)
         flow3_up = crop_like(self.upsampled_flow3_to_2(flow3), out_conv2)
@@ -74,7 +74,7 @@ class Starflow(nn.Module):
 
         concat2 = torch.cat((out_conv2, out_deconv2, flow3_up), 1)
         flow2 = self.predict_flow2(concat2)
-        print(flow2.shape)
+        #print(flow2.shape)
         if self.training:
             return flow2, flow3, flow4, flow5, flow6
         else:

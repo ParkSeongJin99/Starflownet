@@ -86,12 +86,11 @@ class CustomDataset(Dataset):
         if self.transformation:
   
             img1 = self.input_transform(img1)
-            print("img2_bef:",img2.size)
+            
             img2 = self.input_transform(img2)
-            print("img2_af:",img2.shape)
-            print("flow_bef:",flow.shape)
+           
             flow = self.target_transform(flow)
-            print("flow_af:",flow.shape)
+          
         
         return (torch.cat((img1, img2), dim=0), flow)
 
