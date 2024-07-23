@@ -176,8 +176,8 @@ def train(train_loader, model, optimizer, epoch, writer, device, print_freq, arg
 
         if i % print_freq == 0:
             print(
-                "Epoch: [{0}][{1}/{2}]\t Time {3}\t Data {4}\t Loss {5}\t EPE {6}".format(
-                    epoch, i, len(train_loader), batch_time, data_time, losses, flow2_EPEs
+                "Epoch: [{0}][{1}/{2}]\t Loss {3}\t EPE {4}".format(
+                    epoch, i, len(train_loader), losses, flow2_EPEs
                 )
             )
         n_iter += 1
@@ -231,7 +231,8 @@ class AverageMeter:
         self.avg = self.sum / self.count
 
     def __str__(self):
-        return f"Value: {self.val:.4f}, Average: {self.avg:.4f}, Sum: {self.sum:.4f}, Count: {self.count}"
+        #return f"Value: {self.val:.4f}, Average: {self.avg:.4f}, Sum: {self.sum:.4f}, Count: {self.count}"
+        return f"Value: {self.val:.4f}, Average: {self.avg:.4f}"
 
 
 
