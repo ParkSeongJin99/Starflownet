@@ -72,7 +72,7 @@ class CustomDataset(Dataset):
 
         return (torch.cat((img1, img2), dim=0), flow)
 
-    def load_optical_flow(self, path):
+    def load_optical_flow(self,path):
         with open(path, 'rb') as f:
             # Read magic number
             magic = f.read(4).decode('ascii')
@@ -83,10 +83,21 @@ class CustomDataset(Dataset):
             width = np.fromfile(f, dtype=np.int32, count=1)[0]
             height = np.fromfile(f, dtype=np.int32, count=1)[0]
             
+            # Total number of elements for x and y components
+            total_elements = width * height
+            
             # Read flow data
-            flow_data = np.fromfile(f, dtype=np.float32).reshape((height, width, 2))
+            flow_data = np.fromfile(f, dtype=np.float32, count=total_elements * 2)
+            
+            # Separate into x and y components, reading height rows at a time
+            x = flow_data[:total_elements].reshape((width, height)).transpose()
+            y = flow_data[total_elements:].reshape((width, height)).transpose()
+            
+            # Stack x and y components into a flow tensor
+            flow = np.stack((x, y), axis=-1)
             
         # Convert to PyTorch tensor
-        flow_tensor = torch.tensor(flow_data, dtype=torch.float32)
+        flow_tensor = torch.tensor(flow, dtype=torch.float32)
         
         return flow_tensor
+
