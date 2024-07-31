@@ -5,3 +5,4 @@ saved_models/
 Starnet_result/
 *.xlsx
 output/
+testset/

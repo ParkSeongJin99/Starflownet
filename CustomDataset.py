@@ -4,6 +4,7 @@ from torch.utils.data import Dataset
 from PIL import Image, UnidentifiedImageError
 import numpy as np
 from torchvision import transforms
+import torch.nn.functional as F
 
 # Custom transformation to convert numpy arrays to tensors
 class ArrayToTensor(object):
@@ -20,9 +21,24 @@ input_transform = transforms.Compose([
     transforms.Normalize(mean=[0.45], std=[1])  # Normalize gray scale images
 ])
 
+def resize_and_scale_optical_flow(flow, new_size):
+    original_size = (flow.shape[2], flow.shape[1])  # (width, height)
+    scale_x = new_size[1] / original_size[0]
+    scale_y = new_size[0] / original_size[1]
+
+    # Resize the flow field using bilinear interpolation
+    resized_flow = F.interpolate(flow.unsqueeze(0), size=new_size, mode='bilinear', align_corners=False).squeeze(0)
+
+    # Scale the flow vectors
+    resized_flow[0] *= scale_x  # Scale x direction
+    resized_flow[1] *= scale_y  # Scale y direction
+
+    return resized_flow
+
+# Define the transformation for optical flow data
 target_transform = transforms.Compose([
     ArrayToTensor(),  # Convert optical flow numpy array to Tensor
-    transforms.Resize((512, 512)),
+    transforms.Lambda(lambda flow: resize_and_scale_optical_flow(flow, (512, 512))),
     transforms.Normalize(mean=[0], std=[1])  # Normalize flow data
 ])
 
