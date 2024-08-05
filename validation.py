@@ -7,11 +7,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 from torch.utils.data import DataLoader
 from torchvision import transforms
-from CustomDataset import CustomDataset  # CustomDataset.py의 CustomDataset 클래스를 import합니다.
+from CustomDataset_val import CustomDataset  # CustomDataset.py의 CustomDataset 클래스를 import합니다.
 from models.Starflow import Starflow  # Starflow.py의 Starflow 클래스를 import합니다.
+import struct
 
-
-def visualize_star_movement(first_image,second_image, predicted_flow, target_flow, step=1):
+def visualize_star_movement(first_image, second_image, predicted_flow, target_flow, step=1):
     """
     이미지 위에 Optical Flow 벡터를 시각화합니다.
 
@@ -30,16 +30,18 @@ def visualize_star_movement(first_image,second_image, predicted_flow, target_flo
     H, W = first_image.shape
     Y, X = np.mgrid[0:H:step, 0:W:step]
 
+    pred_U = predicted_flow[0]
+    pred_V = predicted_flow[1]
+    mask_pred = first_image > 0
+    pred_U_mask = pred_U[mask_pred]
+    pred_V_mask = pred_V[mask_pred]
+    Y_pred, X_pred = np.mgrid[0:H, 0:W]
+    Y_pred_mask  = Y_pred[mask_pred]
+    X_pred_mask  = X_pred[mask_pred]
     pred_U = predicted_flow[0, ::step, ::step]
     pred_V = predicted_flow[1, ::step, ::step]
-    mask_pred = first_image > 0
-    pred_U = pred_U[mask_pred]
-    pred_V = pred_V[mask_pred]
-    Y_pred, X_pred = np.mgrid[0:H, 0:W]
-    Y_pred = Y_pred[mask_pred]
-    X_pred = X_pred[mask_pred]
-
-
+    Y_pred = Y_pred[::step, ::step]
+    X_pred = X_pred[::step, ::step]
     # Filter out zero vectors for target flow
     target_U = target_flow[0]
     target_V = target_flow[1]
@@ -57,36 +59,44 @@ def visualize_star_movement(first_image,second_image, predicted_flow, target_flo
     plt.imshow(first_image, cmap='gray')
     plt.imshow(second_image, cmap='gray')
     plt.quiver(X_pred, Y_pred, pred_U, pred_V, color='r', scale=1, scale_units='xy', angles='xy', headwidth=3, headlength=5, label='Predicted')
+    plt.quiver(X_pred_mask, Y_pred_mask, pred_U_mask, pred_V_mask, color='r', scale=1, scale_units='xy', angles='xy', headwidth=3, headlength=5, label='Predicted')
     plt.quiver(X_target, Y_target, target_U, target_V, color='b', scale=1, scale_units='xy', angles='xy', headwidth=3, headlength=5, label='Target')
     plt.title('Star Movement Visualization')
     plt.legend()
     plt.show()
 
-
-def save_flow_to_txt(flow, file_path):
+def save_flow_to_bin(flow, file_path):
     """
-    Optical Flow 데이터를 텍스트 파일로 저장합니다.
+    Optical Flow 데이터를 바이너리 파일로 저장합니다.
 
     Args:
     - flow (Tensor): 저장할 Optical Flow 텐서, shape: (2, H, W)
     - file_path (str): 저장할 파일의 경로
     """
-    flow = flow.numpy()
-    H, W = flow.shape[1:]
-    with open(file_path, 'w') as f:
-        for y in range(H):
-            for x in range(W):
-                u = flow[0, y, x]
-                v = flow[1, y, x]
-                f.write(f"{x} {y} {u} {v}\n")
+    flow = flow.numpy()  # Convert Tensor to numpy array
+    H, W = flow.shape[1:]  # Extract height and width
 
+    # Reshape the flow array to (H, W * 2)
+    flow_data = np.reshape(flow, (H, W * 2))
+
+    # Write to binary file
+    with open(file_path, 'wb') as f:
+        # Write the magic number 'PIEH'
+        f.write(b'PIEH')
+
+        # Write width and height
+        f.write(struct.pack('i', W))
+        f.write(struct.pack('i', H))
+
+        # Write flow data as float32
+        flow_data.astype('float32').tofile(f)
 
 def main():
     parser = argparse.ArgumentParser(description="PyTorch Starflow Validation")
     parser.add_argument("model", help="model_name")
-    parser.add_argument("--data", metavar="DIR",default="dataset", help="path to dataset")
+    parser.add_argument("--data", metavar="DIR", default="dataset", help="path to dataset")
     parser.add_argument("--modelpath", help="directory to load the trained models")
-    parser.add_argument("--output", help="file path to save the predicted flow")
+    parser.add_argument("--output", help="directory to save the predicted flow")
 
     args = parser.parse_args()
 
@@ -101,33 +111,31 @@ def main():
     model.load_state_dict(torch.load(pretrained_model_path, map_location=torch.device('cpu'))['state_dict'])
     model.eval()
 
-    sample_data = next(iter(data_loader))
+    if not os.path.exists(args.output):
+        os.makedirs(args.output)
     
-    input_images, target_flow = sample_data
-    model.eval()
-    with torch.no_grad():
-        output_flow = model(input_images.to(device)).cpu()
-    
-    # Since Target pooling is not very precise when sparse,
-    # take the highest resolution prediction and upsample it instead of downsampling target
-    h, w = target_flow.size()[-2:]
-    output_flow = F.interpolate(output_flow, (h, w))
+    for sample_data in data_loader:
+        input_images, target_flow, filename = sample_data
+        filename = filename[0]  # Batch size가 1이므로, 첫 번째 파일 이름만 사용
 
-    print(input_images.shape)
-    first_image = input_images[0][0]  # 첫 번째 이미지 (입력 이미지)
-    second_image = input_images[0][1]  # 첫 번째 이미지 (입력 이미지)
-    predicted_first_flow = output_flow[0]  # 예측된 첫 번째 flow
-    print(predicted_first_flow.shape)
-    target_first_flow = target_flow[0]  # 실제 첫 번째 flow
-    print(target_first_flow.shape)
+        with torch.no_grad():
+            output_flow = model(input_images.to(device)).cpu()
 
-    # 시각화
-    visualize_star_movement(first_image,second_image, predicted_first_flow, target_first_flow)
+        h, w = target_flow.size()[-2:]
+        output_flow = F.interpolate(output_flow, (h, w))
 
-    # 예측된 flow를 텍스트 파일로 저장
-    if args.output:
-        save_flow_to_txt(predicted_first_flow, args.output)
-        print(f"Predicted flow saved to {args.output}")
-   
+        first_image = input_images[0][0]  # 첫 번째 이미지 (입력 이미지)
+        second_image = input_images[0][1]  # 두 번째 이미지 (입력 이미지)
+        predicted_first_flow = output_flow[0]  # 예측된 첫 번째 flow
+        target_first_flow = target_flow[0]  # 실제 첫 번째 flow
+
+        # 시각화
+        visualize_star_movement(first_image, second_image, predicted_first_flow, target_first_flow, 15)
+
+        # 예측된 flow를 텍스트 파일로 저장
+        flow_filename = os.path.join(args.output, f'{filename}_flow.bin')
+        save_flow_to_bin(predicted_first_flow, flow_filename)
+        print(f"Predicted flow saved to {flow_filename}")
+
 if __name__ == "__main__":
     main()
